@@ -1,0 +1,6 @@
+node_modules/
+lib/
+dist-test/
+*.tgz
+.DS_Store
+.verifier/

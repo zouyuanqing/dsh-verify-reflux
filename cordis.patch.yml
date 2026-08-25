@@ -1,0 +1,15 @@
+# dsh bundle patch: mount the three-plane verifier into a profile.
+# Add to ~/.dsh/cordis.patch.yml or ~/.dsh/profiles/<name>/cordis.patch.yml:
+#   - insert:
+#       - id: verify-reflux
+#         name: 'dsh-verify-reflux'
+# Optional config (all defaults resolve from the live session):
+#   config:
+#     provider: openrouter        # scoring route; default = first registered provider
+#     model: stealth/ox-alpha     # scoring model;  default = route's first model
+#     select: true
+#     check: true
+#     track: true
+- insert:
+    - id: verify-reflux
+      name: 'dsh-verify-reflux'
