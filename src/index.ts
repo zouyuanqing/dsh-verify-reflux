@@ -14,6 +14,7 @@ import type { Criteria } from './scorer.js'
 import { runTournament } from './tournament.js'
 import { distillVerdict, isValidRecord } from './distill.js'
 import { formatCheckReflux, formatSelectReflux, formatTrackLine } from './reflux.js'
+import { createVerifiedState } from './state.js'
 import type { RefluxMeta } from './reflux.js'
 import { createTraceSink } from './trace.js'
 import { resolveRoute } from './llm.js'
@@ -163,6 +164,14 @@ export function apply(ctx: Context, config: Config): void {
     }
   }
 
+  // 验证记忆：每次 verify_* 后，模型在后续每一轮都读到这份持久快照。
+  const verifiedState = createVerifiedState()
+  ctx.systemPrompt.context({
+    name: 'verify-reflux:state',
+    order: 150,
+    text: () => verifiedState.render(),
+  })
+
   ctx.systemPrompt.section({
     name: 'tool:verify-reflux',
     order: 120,
@@ -296,6 +305,12 @@ export function apply(ctx: Context, config: Config): void {
           }
 
           const margin = Math.abs(tournament.scores[best]! - tournament.scores[runnerUp]!)
+          verifiedState.record({
+            time: new Date().toISOString().slice(11, 19),
+            tool: 'verify_select',
+            summary: `candidate ${best + 1} wins (runner-up ${tournament.runnerUp + 1}, margin ${margin.toFixed(3)})`,
+            via,
+          })
           const tracesPath = await sink.writeTrace(`${seed}-select.md`, [
             rawLog.join('\n'),
             `\n## ranking\n${tournament.ranking.map((i, r) => `${r + 1}. #${i} ${tournament.scores[i]?.toFixed(3)}`).join('\n')}`,
@@ -393,6 +408,12 @@ export function apply(ctx: Context, config: Config): void {
             `② GUARDED: modes the candidate already defends against\n` +
             `③ SPREAD: repeat disagreement ±${spread.toFixed(3)}${spread > 0.15 ? ' (low verifier agreement — treat score cautiously)' : ''}`
           const tracesPath = await sink.writeTrace('check.md', rawLog.join('\n---\n'))
+          verifiedState.record({
+            time: new Date().toISOString().slice(11, 19),
+            tool: 'verify_check',
+            summary: `score ${(score * 100).toFixed(0)}% ±${(spread * 100).toFixed(0)} across ${names.length} criteria`,
+            via,
+          })
           const reflux = formatCheckReflux({
             meta: { tool: 'verify_check', provider: route.provider, model: route.model, via, tracesPath },
             scoresLine: `score ${score.toFixed(3)} across ${names.length} criterion/criteria`,
@@ -465,6 +486,12 @@ export function apply(ctx: Context, config: Config): void {
             if (d1 < 0.03 && d2 < 0.03 && points[i]!.value < 0.95) stalled = true
           }
           const tracesPath = await sink.writeTrace('track.md', raw.join('\n'))
+          const last = points.at(-1)?.value ?? 0
+          verifiedState.record({
+            time: new Date().toISOString().slice(11, 19),
+            tool: 'verify_track',
+            summary: "progress " + Math.round(last * 100) + "% over " + points.length + " checkpoints" + (stalled ? ' · STALLED' : ''),
+          })
           const reflux = [
             formatTrackLine(points, stalled),
             `<verified_decision tool="verify_track" model="${route.provider}/${route.model}" traces="${tracesPath}">`,

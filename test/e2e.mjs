@@ -50,6 +50,7 @@ const llm = {
 
 const registeredTools = new Map()
 const systemSections = []
+const systemContexts = []
 const ctx = {
   tools: {
     register(tool) {
@@ -59,6 +60,9 @@ const ctx = {
   systemPrompt: {
     section(entry) {
       systemSections.push(entry)
+    },
+    context(entry) {
+      systemContexts.push(entry)
     },
   },
   llm,
@@ -91,6 +95,9 @@ const result = await tool.execute(
 
 // L1 verdict line names the true winner.
 assert.match(result.reflux, /^Best: candidate 1 \| score/)
+const stateText = systemContexts.find((c) => c.name === 'verify-reflux:state').text()
+assert.match(stateText, /candidate 2 wins/, 'verified-state snapshot carries the verdict')
+assert.match(stateText, /\(sample@test-route\/mock-model\)/, 'snapshot keeps tier provenance')
 // Sample tier served this verdict: absolute scoring means zero pairwise comparisons.
 assert.match(result.reflux, /0 comparisons/)
 // L2 block carries provenance and the distilled three sections.
