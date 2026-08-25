@@ -163,3 +163,9 @@ listModels() 默认模型。温度默认 0（种子化可复现），maxTokens 5
 验证状态改 WeakMap<Agent, ring>——以 harness 自身的 scope 路由键（Agent
 对象）分桶：陌生会话状态恒空、瀑布不注入；仅跑过 verify_* 的会话进入
 预轮 DeepThink 名单。`preTurnEverywhere` 显式打开全域（默认 false）。
+
+### v2.4 设置卡片 + 动态档位
+宿主注册 settings 命名空间 `verify-reflux`（preTurnDeepThink/preTurnEverywhere），
+浏览器半区在 `settings.plugin.item` 键控槽位渲染配置卡：三档单选 + 全域开关，
+直走绑定作用域 revision-fenced set() 即时持久化。瀑布监听器每次组装动态读
+settings（patch Config 仅兜底）——改档位无需重启。

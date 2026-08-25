@@ -10,7 +10,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-tools'
-import type {} from '@deepseek-ai/dsh-system-prompt'
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { comparePair } from './scorer.js'
 import type { Criteria } from './scorer.js'
 import { runTournament } from './tournament.js'
@@ -33,7 +33,7 @@ import type { DistributionJudge } from './judges.js'
 
 export const name = 'verify-reflux'
 
-export const inject = ['tools', 'systemPrompt', 'llm'] as const
+export const inject = ['tools', 'systemPrompt', 'llm', 'settings'] as const
 
 export interface Config {
   provider?: string
@@ -178,6 +178,14 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   // 验证记忆：每次 verify_* 后，模型在后续每一轮都读到这份持久快照。
+  // 设置命名空间：设置页「插件配置」卡片的数据源；运行时动态读取。
+  const verifySettings = ctx.settings.register(
+    settingsNamespace('verify-reflux'),
+    z.object({
+      preTurnDeepThink: z.string().default('off'),
+      preTurnEverywhere: z.boolean().default(false),
+    }),
+  )
   const verifiedState = createVerifiedStateRegistry()
   const execKey = (exec: { agent?: unknown }): StateKey => keyOf(exec.agent)
   const recordVerdict = (exec: { agent?: unknown }, entry: Omit<VerdictEntry, 'time'>): void => {
@@ -192,9 +200,22 @@ export function apply(ctx: Context, config: Config): void {
   // ── 预轮 DeepThink：挂进官方 system-prompt/assemble 瀑布 ──────────────────
   // 瀑布必须 resolve 主模型的请求才会发出 —— 「主会话模型等到上下文注入后
   // 才继续输出」正是这里的字面语义。full 档失手静默降级 light，绝不阻塞。
-  const preTurn = (['off', 'light', 'full'] as const).includes(config.preTurnDeepThink as never)
-    ? (config.preTurnDeepThink as 'off' | 'light' | 'full')
-    : 'off'
+  const normalizeTier = (v: unknown): 'off' | 'light' | 'full' =>
+    v === 'light' || v === 'full' ? v : 'off'
+  const effectiveTier = (): 'off' | 'light' | 'full' => {
+    try {
+      return normalizeTier(verifySettings.get().preTurnDeepThink)
+    } catch {
+      return normalizeTier(config.preTurnDeepThink)
+    }
+  }
+  const effectiveEverywhere = (): boolean => {
+    try {
+      return !!verifySettings.get().preTurnEverywhere
+    } catch {
+      return !!config.preTurnEverywhere
+    }
+  }
   const graveyardTail = (): string => {
     try {
       const raw = readFileSync(join(process.cwd(), '.verifier', 'graveyard.md'), 'utf8')
@@ -209,9 +230,10 @@ export function apply(ctx: Context, config: Config): void {
   }
   ctx.on('system-prompt/assemble', async (assembly, context, next) => {
     const out = await next()
+    const preTurn = effectiveTier()
     if (preTurn === 'off') return out
     const sKey = keyOf(context?.scope)
-    if (!verifiedState.hasEngaged(sKey) && !config.preTurnEverywhere) return out
+    if (!verifiedState.hasEngaged(sKey) && !effectiveEverywhere()) return out
     const settled = verifiedState.renderFor(sKey)
     const grave = graveyardTail()
     let text = ''

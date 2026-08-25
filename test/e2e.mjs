@@ -52,6 +52,7 @@ const registeredTools = new Map()
 let assembleListener = null
 const systemSections = []
 const systemContexts = []
+const registeredNamespaces = []
 const ctx = {
   tools: {
     register(tool) {
@@ -67,6 +68,12 @@ const ctx = {
     },
   },
   llm,
+  settings: {
+    register(ns) {
+      registeredNamespaces.push(ns);
+      return { get: () => ({ preTurnDeepThink: 'light', preTurnEverywhere: false }) };
+    },
+  },
   on(event, handler) {
     if (event === 'system-prompt/assemble') assembleListener = handler
     return () => {}
@@ -100,6 +107,7 @@ const result = await tool.execute(
 
 // L1 verdict line names the true winner.
 assert.match(result.reflux, /^Best: candidate 1 \| score/)
+assert.ok(registeredNamespaces.some((ns) => ns === 'verify-reflux'), 'settings namespace registered for config card')
 assert.equal(typeof assembleListener, 'function', 'waterfall listener registered')
 {
   const assembly = { sections: [], contexts: [], tools: [], variables: {} }
