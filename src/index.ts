@@ -325,7 +325,10 @@ export function apply(ctx: Context, config: Config): void {
       async execute(_args, exec) {
         exec.signal?.throwIfAborted()
         const route = await resolveRoute(ctx.llm, { ...config, ...sessionRoute(exec) })
-        const lines: string[] = [`route: ${route.provider}/${route.model}`]
+        const lines: string[] = [
+          `route: ${route.provider}/${route.model}`,
+          `budget: ${route.maxTokens ? route.maxTokens + ' tokens (model catalog)' : '4096 (default)'}`,
+        ]
         let letter: string | null = null
         try {
           const reply = await completeText(ctx.llm, {

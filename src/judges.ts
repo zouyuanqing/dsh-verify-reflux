@@ -10,7 +10,7 @@
  */
 
 import { LETTERS } from './scale.js'
-import { completeText } from './llm.js'
+import { completeText, type Route } from './llm.js'
 import type { LlmStreamService } from './llm.js'
 
 export type Tier = 'logprob' | 'sample' | 'template'
@@ -59,7 +59,7 @@ export function extractScoreLetter(text: string): string | null {
  */
 export function makeSamplingJudge(
   llm: LlmStreamService,
-  route: { provider: string; model: string },
+  route: Route,
   defaults: { system: string; samples?: number; temperature?: number },
 ): DistributionJudge {
   return {
@@ -79,7 +79,7 @@ export function makeSamplingJudge(
             ...route,
             system: defaults.system,
             prompt,
-            maxTokens: 4096,
+            maxTokens: route.maxTokens ?? 4096,
             signal,
           })
         } catch (err) {

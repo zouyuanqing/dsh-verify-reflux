@@ -187,3 +187,9 @@ hy3/mimo 等推理模型在 openai-completions 协议下 reasoning 消耗计入
 max_tokens：512 预算被思考烧光（finish=length，正文 0 字符）→ 两档判分
 全部拿不到输出。实测 8192 预算下 hy3 思考 ~1041 tokens 后正常产出。
 修复：判分补全默认预算 4096；SCORE_RE 兼容 "SCORE":"C" JSON 包裹形态。
+
+### v2.4.4 判分预算按模型目录自适应
+resolveModel 元数据软探测：resolveRoute 附带返回目录声明的输出上限
+（如 hy3=64000 / mimo-v2.5=128000），判分补全预算 = 路由.maxTokens，
+缺省回落 4096。实测网关对超限值行为不一（hy3 接受 384000，mimo 直接
+400 Param Incorrect），固定大值不可行——按目录取值才是正解。

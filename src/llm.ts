@@ -60,14 +60,23 @@ export async function completeText(
   return text
 }
 
-/** Resolve the default route lazily: config override, else first registered. */
+export interface Route {
+  provider: string
+  model: string
+  /** 模型目录声明的单次输出上限；判分预算按它取，推理模型的思考也计入 max_tokens。 */
+  maxTokens?: number
+}
+
+/** Resolve the default route lazily: config override, else first registered.
+ *  附带解析模型元数据里的输出上限（软依赖：服务不支持则无此字段）。 */
 export async function resolveRoute(
   llm: {
     listProviders(): unknown
     listModels(provider: string): unknown
+    resolveModel?(provider: string, model: string): Promise<unknown>
   },
   config: { provider?: string; model?: string },
-): Promise<{ provider: string; model: string }> {
+): Promise<Route> {
   let provider = config.provider
   if (!provider) {
     const providers = (await llm.listProviders()) as Array<{ id: string }>
@@ -80,7 +89,17 @@ export async function resolveRoute(
     model = models[0]?.id
     if (!model) throw new Error(`provider ${provider} advertises no models`)
   }
-  return { provider, model }
+  let maxTokens: number | undefined
+  try {
+    const info = (await llm.resolveModel?.(provider, model)) as
+      | { maxTokens?: unknown; max_tokens?: unknown; maxOutputTokens?: unknown }
+      | undefined
+    const cap = info?.maxTokens ?? info?.max_tokens ?? info?.maxOutputTokens
+    if (typeof cap === 'number' && Number.isFinite(cap) && cap > 0) maxTokens = Math.floor(cap)
+  } catch {
+    // 元数据不可用 → 保持默认预算
+  }
+  return { provider, model, maxTokens }
 }
 
 /** Typed accessor so apply() can inject the real service. */
