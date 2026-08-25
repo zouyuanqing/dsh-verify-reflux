@@ -33,7 +33,7 @@ import type { DistributionJudge } from './judges.js'
 
 export const name = 'verify-reflux'
 
-export const inject = ['tools', 'systemPrompt', 'llm', 'settings'] as const
+export const inject = ['tools', 'systemPrompt', 'llm'] as const
 
 export interface Config {
   provider?: string
@@ -178,14 +178,24 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   // 验证记忆：每次 verify_* 后，模型在后续每一轮都读到这份持久快照。
-  // 设置命名空间：设置页「插件配置」卡片的数据源；运行时动态读取。
-  const verifySettings = ctx.settings.register(
-    settingsNamespace('verify-reflux'),
-    z.object({
-      preTurnDeepThink: z.string().default('off'),
-      preTurnEverywhere: z.boolean().default(false),
-    }),
-  )
+  // 设置命名空间（软依赖）：服务缺席时配置卡不可用，但插件照常加载，
+  // 档位回落 patch Config。绝不因可选缝失败而拒绝启动。
+  const verifySettings: { get(): { preTurnDeepThink?: string; preTurnEverywhere?: boolean } } | undefined =
+    (() => {
+      try {
+        const svc = (ctx as { settings?: { register(ns: unknown, schema: unknown): { get(): unknown } } }).settings
+        if (!svc?.register) return undefined
+        return svc.register(
+          settingsNamespace('verify-reflux'),
+          z.object({
+            preTurnDeepThink: z.string().default('off'),
+            preTurnEverywhere: z.boolean().default(false),
+          }),
+        ) as { get(): { preTurnDeepThink?: string; preTurnEverywhere?: boolean } }
+      } catch {
+        return undefined
+      }
+    })()
   const verifiedState = createVerifiedStateRegistry()
   const execKey = (exec: { agent?: unknown }): StateKey => keyOf(exec.agent)
   const recordVerdict = (exec: { agent?: unknown }, entry: Omit<VerdictEntry, 'time'>): void => {
@@ -203,6 +213,7 @@ export function apply(ctx: Context, config: Config): void {
   const normalizeTier = (v: unknown): 'off' | 'light' | 'full' =>
     v === 'light' || v === 'full' ? v : 'off'
   const effectiveTier = (): 'off' | 'light' | 'full' => {
+    if (!verifySettings) return normalizeTier(config.preTurnDeepThink)
     try {
       return normalizeTier(verifySettings.get().preTurnDeepThink)
     } catch {
@@ -210,6 +221,7 @@ export function apply(ctx: Context, config: Config): void {
     }
   }
   const effectiveEverywhere = (): boolean => {
+    if (!verifySettings) return !!config.preTurnEverywhere
     try {
       return !!verifySettings.get().preTurnEverywhere
     } catch {
