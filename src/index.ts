@@ -33,7 +33,7 @@ import type { DistributionJudge } from './judges.js'
 
 export const name = 'verify-reflux'
 
-export const inject = ['tools', 'systemPrompt', 'llm'] as const
+export const inject = ['tools', 'systemPrompt', 'llm', 'settings'] as const
 
 export interface Config {
   provider?: string
