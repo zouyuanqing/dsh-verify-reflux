@@ -210,10 +210,14 @@ export function apply(ctx: Context, config: Config): void {
   // 评分路由跟随执行代理自己的 provider/model —— 那是当前会话正在用、
   // 且被证明可用的路由；resolveRoute 的 first-registered 回退可能指向
   // 未配置凭证的默认适配器，导致全部判分补全失败。
-  const sessionRoute = (exec: unknown): { provider?: string; model?: string } => {
-    const a = (exec as { agent?: { options?: { provider?: string; model?: string } } }).agent
-    if (!a?.options?.provider) return {}
-    return { provider: a.options.provider, model: a.options.model ?? '' }
+  const sessionRoute = (execLike: unknown): { provider?: string; model?: string } => {
+    const a = execLike as {
+      agent?: { options?: { provider?: string; model?: string } }
+      options?: { provider?: string; model?: string }
+    }
+    const opts = a?.agent?.options ?? a?.options
+    if (!opts?.provider) return {}
+    return { provider: opts.provider, model: opts.model ?? '' }
   }
   const execKey = (exec: { agent?: unknown }): StateKey => keyOf(exec.agent)
   const recordVerdict = (exec: { agent?: unknown }, entry: Omit<VerdictEntry, 'time'>): void => {
@@ -269,7 +273,7 @@ export function apply(ctx: Context, config: Config): void {
     let text = ''
     if (preTurn === 'full') {
       try {
-        const route = await resolveRoute(ctx.llm, config)
+        const route = await resolveRoute(ctx.llm, { ...config, ...sessionRoute(context?.scope) })
         const reply = await completeText(ctx.llm, {
           ...route,
           system:
