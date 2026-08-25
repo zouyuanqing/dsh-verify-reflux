@@ -33,6 +33,8 @@ export interface VerifiedStateRegistry {
 	renderFor(key: StateKey): string
 	/** Whether this scope has run any verification (gates pre-turn deepthink). */
 	hasEngaged(key: StateKey): boolean
+	/** Number of settled verdicts for one scope (provenance metadata). */
+	count(key: StateKey): number
 }
 
 export function createVerifiedStateRegistry(max: number = MAX_ENTRIES): VerifiedStateRegistry {
@@ -72,6 +74,10 @@ export function createVerifiedStateRegistry(max: number = MAX_ENTRIES): Verified
 		hasEngaged(key) {
 			const b = bucketFor(key)
 			return !!b && b.length > 0
+		},
+		count(key) {
+			const b = bucketFor(key)
+			return b ? b.length : 0
 		},
 	}
 }

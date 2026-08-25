@@ -210,3 +210,10 @@ full 档监听器的 resolveRoute 此前缺会话上下文 → 打到 first-regi
 路由目录上限（hy3=64000）放开后推理模型「思考到上限」：6 次采样撞穿
 工具 5min 时限。completeText 统一钳制 ≤8192 —— SCORE 判分思考实测
 ~1-4k，天花板 4-8 倍冗余；目录值保留为下限参考。
+
+### v2.4.8 注入内容升级：出处头 + 证据引用 + 待机诚实态
+- 出处头：<pre_turn_deepthink tier=.. verdicts=N grave=M> 在上下文里自证
+  来自验证管线（回应「怎么知道那是瀑布」）
+- full 综合强制逐条引用证据 [74%±5]/[graveyard#2]，禁编数字；空输入
+  输出 STANDBY → 落为单行待机提示，不再产出正确的废话
+- registry.count() 支撑出处头

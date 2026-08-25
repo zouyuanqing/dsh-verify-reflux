@@ -270,21 +270,22 @@ export function apply(ctx: Context, config: Config): void {
     if (!verifiedState.hasEngaged(sKey) && !effectiveEverywhere()) return out
     const settled = verifiedState.renderFor(sKey)
     const grave = graveyardTail()
+    const hasInput = !!(settled || grave)
     let text = ''
-    if (preTurn === 'full') {
+    if (preTurn === 'full' && hasInput) {
       try {
         const route = await resolveRoute(ctx.llm, { ...config, ...sessionRoute(context?.scope) })
         const reply = await completeText(ctx.llm, {
           ...route,
           system:
-            'You are the pre-flight verifier. Given settled verdicts and rejected approaches, ' +
-            'output AT MOST 3 terse risk bullets the next change must respect. No preamble.',
-          prompt: [settled || '(no verdicts yet)', grave ? 'Rejected:\n' + grave : '']
-            .filter(Boolean)
-            .join('\n\n'),
+            'You are the pre-flight verifier. Input: settled probability verdicts and rejected ' +
+            'approaches. Output AT MOST 3 terse risk bullets, EACH citing its evidence inline like ' +
+            '[74%±5] or [graveyard#2]. Never invent numbers. If inputs are empty, output exactly: STANDBY',
+          prompt: [settled || '', grave ? 'Rejected:\n' + grave : ''].filter(Boolean).join('\n\n'),
           signal: context?.signal,
         })
         text = reply.trim()
+        if (text === 'STANDBY') text = ''
       } catch {
         // full 失手 → 落到 light 的静态拼装
       }
@@ -295,10 +296,18 @@ export function apply(ctx: Context, config: Config): void {
       if (grave) parts.push('Rejected approaches (do not retry):\n' + grave)
       if (parts.length) text = parts.join('\n\n')
     }
+    // 出处头：注入在上下文里自证来自验证管线而非普通思考。
+    const meta = `tier=${preTurn} verdicts=${verifiedState.count(sKey)} grave=${grave ? grave.split('\n').length : 0}`
     if (text) {
       out.contexts.push({
         name: 'verify-reflux:preturn',
-        text: '<pre_turn_deepthink>\n' + text + '\n</pre_turn_deepthink>',
+        text: '<pre_turn_deepthink ' + meta + '>\n' + text + '\n</pre_turn_deepthink>',
+      })
+    } else if (!hasInput) {
+      out.contexts.push({
+        name: 'verify-reflux:preturn',
+        text:
+          '<pre_turn_deepthink ' + meta + '>\nstandby: no verification history yet — run verify_check once to build session memory.\n</pre_turn_deepthink>',
       })
     }
     return out
