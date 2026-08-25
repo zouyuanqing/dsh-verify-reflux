@@ -140,10 +140,9 @@ export function apply(ctx: Context, config: Config): void {
       },
     }
   }
-  const resolveJudge = async (): Promise<DistributionJudge> => {
+  const resolveJudge = async (route: { provider: string; model: string }): Promise<DistributionJudge> => {
     const direct = await buildDirectJudge()
     if (direct) return direct
-    const route = await resolveRoute(ctx.llm, config)
     return makeSamplingJudge(ctx.llm, route, { system: ABS_SYSTEM, samples: 6 })
   }
   /** 绝对评分全流程；任何一层失手自动降级模板并返回 null。 */
@@ -197,6 +196,14 @@ export function apply(ctx: Context, config: Config): void {
       }
     })()
   const verifiedState = createVerifiedStateRegistry()
+  // 评分路由跟随执行代理自己的 provider/model —— 那是当前会话正在用、
+  // 且被证明可用的路由；resolveRoute 的 first-registered 回退可能指向
+  // 未配置凭证的默认适配器，导致全部判分补全失败。
+  const sessionRoute = (exec: unknown): { provider?: string; model?: string } => {
+    const a = (exec as { agent?: { options?: { provider?: string; model?: string } } }).agent
+    if (!a?.options?.provider) return {}
+    return { provider: a.options.provider, model: a.options.model ?? '' }
+  }
   const execKey = (exec: { agent?: unknown }): StateKey => keyOf(exec.agent)
   const recordVerdict = (exec: { agent?: unknown }, entry: Omit<VerdictEntry, 'time'>): void => {
     verifiedState.record(execKey(exec), { ...entry, time: new Date().toISOString().slice(11, 19) })
@@ -338,7 +345,7 @@ export function apply(ctx: Context, config: Config): void {
         isConcurrencySafe: () => true,
         async execute(args, exec) {
           exec.signal?.throwIfAborted()
-          const route: Route = await resolveRoute(ctx.llm, config)
+          const route: Route = await resolveRoute(ctx.llm, { ...config, ...sessionRoute(exec) })
           const n = args.candidates.length
           if (n === 0) throw new Error('candidates must be non-empty')
           const criteria = args.criteria as Criteria
@@ -347,7 +354,7 @@ export function apply(ctx: Context, config: Config): void {
           const repeats = typeof args.repeats === 'number' ? args.repeats : 2
 
           const rawLog: string[] = [`# verify_select ${new Date().toISOString()} seed=${seed} n=${n}`]
-          const judge = await resolveJudge()
+          const judge = await resolveJudge(route)
           let via: string | undefined = judge.via
           let tournament
           const scored = judge
@@ -487,10 +494,10 @@ export function apply(ctx: Context, config: Config): void {
         isConcurrencySafe: () => true,
         async execute(args, exec) {
           exec.signal?.throwIfAborted()
-          const route = await resolveRoute(ctx.llm, config)
+          const route = await resolveRoute(ctx.llm, { ...config, ...sessionRoute(exec) })
           const criteria = args.criteria as Criteria
           const names = Object.keys(criteria)
-          const judge = await resolveJudge()
+          const judge = await resolveJudge(route)
           const via = judge.via
           let score: number
           let spread: number
@@ -505,13 +512,20 @@ export function apply(ctx: Context, config: Config): void {
             score = mean(scored.scores)
             spread = stdev(scored.perCriterion[0] ?? [])
           } else {
-            const result = await comparePair(ctx.llm, route, args.problem, args.candidate, args.candidate, criteria, {
-              repeats: 3,
-              signal: exec.signal,
-            })
-            score = result.scores[0]!
-            spread = result.spreads[0]!
-            rawLog = result.raw
+            try {
+              const result = await comparePair(ctx.llm, route, args.problem, args.candidate, args.candidate, criteria, {
+                repeats: 3,
+                signal: exec.signal,
+              })
+              score = result.scores[0]!
+              spread = result.spreads[0]!
+              rawLog = result.raw
+            } catch (err) {
+              throw new Error(
+                `${String(err).slice(0, 200)} — scoring route: ${route.provider}/${route.model}. ` +
+                  `If this model rejects hidden completions, configure verifierBaseUrl for direct scoring.`,
+              )
+            }
           }
           const record =
             `① RISK: top failure modes found during execution test — see trace for per-criterion detail\n` +
@@ -565,7 +579,7 @@ export function apply(ctx: Context, config: Config): void {
         isConcurrencySafe: () => true,
         async execute(args, exec) {
           exec.signal?.throwIfAborted()
-          const route = await resolveRoute(ctx.llm, config)
+          const route = await resolveRoute(ctx.llm, { ...config, ...sessionRoute(exec) })
           if (args.steps.length === 0) throw new Error('steps must be non-empty')
           const points: Array<{ step: number; value: number }> = []
           const raw: string[] = [`# verify_track ${new Date().toISOString()}`]

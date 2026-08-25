@@ -169,3 +169,10 @@ listModels() 默认模型。温度默认 0（种子化可复现），maxTokens 5
 浏览器半区在 `settings.plugin.item` 键控槽位渲染配置卡：三档单选 + 全域开关，
 直走绑定作用域 revision-fenced set() 即时持久化。瀑布监听器每次组装动态读
 settings（patch Config 仅兜底）——改档位无需重启。
+
+### v2.4.1 评分路由修复（真实环境首战 bug）
+工具执行时 exec.agent.options 才是会话真正在用的路由；resolveRoute 的
+first-registered 回退可能指向未配置凭证的适配器（如 deepseek-official
+无 key），导致 SCORE 采样与 JSON 模板双档全部拿不到有效输出。现在三个
+工具的评分路由优先取 sessionRoute(exec)，config 仅作无代理场景兜底；
+check 兜底失败时报错携带所用路由，便于一眼定位。
