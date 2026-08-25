@@ -4,7 +4,7 @@
  * inject ['tools','systemPrompt','llm']：评分补全走 ctx.llm.stream，
  * 会话凭证由 adapter 按操作解析——零额外配置，当前对话模型即验证模型。
  */
-import { readFileSync } from 'node:fs'
+import { appendFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -176,6 +176,15 @@ export function apply(ctx: Context, config: Config): void {
     }
   }
 
+  // 加载面包屑：宿主侧各阶段落盘，远程可读 —— 区分「没加载/加载半途/全绿」。
+  const loadLog = (step: string): void => {
+    try {
+      const dir = process.env.HOME ?? '/data/data/com.dsharnessmobile.shell/files/home'
+      appendFileSync(`${dir}/.dsh/verify-reflux.loadlog`, `${new Date().toISOString()} ${step}\n`)
+    } catch {}
+  }
+  loadLog('apply-enter')
+
   // 验证记忆：每次 verify_* 后，模型在后续每一轮都读到这份持久快照。
   // 设置命名空间（软依赖）：服务缺席时配置卡不可用，但插件照常加载，
   // 档位回落 patch Config。绝不因可选缝失败而拒绝启动。
@@ -191,10 +200,12 @@ export function apply(ctx: Context, config: Config): void {
             preTurnEverywhere: z.boolean().default(false),
           }),
         ) as { get(): { preTurnDeepThink?: string; preTurnEverywhere?: boolean } }
-      } catch {
+      } catch (err) {
+        loadLog(`settings-register-failed: ${String(err).slice(0, 140)}`)
         return undefined
       }
     })()
+  loadLog(verifySettings ? 'settings-registered' : 'settings-service-absent')
   const verifiedState = createVerifiedStateRegistry()
   // 评分路由跟随执行代理自己的 provider/model —— 那是当前会话正在用、
   // 且被证明可用的路由；resolveRoute 的 first-registered 回退可能指向
@@ -683,6 +694,8 @@ export function apply(ctx: Context, config: Config): void {
       }),
     )
   }
+
+  loadLog('apply-complete')
 }
 
 function fallbackRecord(winner: number): string {
