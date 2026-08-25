@@ -127,3 +127,21 @@ listModels() 默认模型。温度默认 0（种子化可复现），maxTokens 5
 能力探测一次一缓存（.verifier 能力表语义在内存），失败端点冷却 1 小时
 不重试。T2 的频次收敛于真实输出分布——数学上比固定模板更接近论文，
 且把"重复评估"scaling 轴从方差缩减升级为分布估计。
+
+## v2.2 客户端半侧：Think 式验证卡片（Phase A ✅）
+
+`lib/client.js` 以官方 ModuleLoader 包装注册 `tool.call.toolview` 键控槽位的
+三个 occupant（verify_select/check/track），接管默认通用卡片：
+
+- 折叠态一行摘要（Best 结论 / margin chip / via 徽标）
+- 展开态：决胜链 ①②③ + provenance 徽标行 + 可再展开的原始输出
+- 注册是 additive 的（未认领 key 回落通用卡），零风险接管自家工具
+
+加载管线：host 启动时读组合树的 `dsh.client` 声明 → boot manifest →
+`/plugins/dsh-verify-reflux/client.js`。改动需重启主机+刷新页面。
+
+### Phase B/C 路线（已立项）
+- B 直播面板：judge 补全 text-delta → 会话事件流 → 面板订阅渲染 DeepThink 过程
+  （待勘察：dsh-client-connection 的 connection-stream 投递面）
+- C 可对话线程：面板输入框 → host verifier-thread Service → 独立 LLM 循环，
+  历史落 `.verifier/threads/`；经 api-gateway Remote 暴露 host.call 端点

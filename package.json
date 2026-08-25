@@ -20,7 +20,10 @@
       "default": "./lib/tournament.js"
     },
     "./package.json": "./package.json",
-    "./cordis.patch.yml": "./cordis.patch.yml"
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./client": {
+      "default": "./lib/client.js"
+    }
   },
   "files": [
     "lib",
@@ -35,8 +38,12 @@
     "node": ">=18.0.0"
   },
   "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-tool"
+      ],
+      "platform": "web"
     }
   },
   "scripts": {
