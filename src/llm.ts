@@ -50,7 +50,7 @@ export async function completeText(
     ],
     system: options.system,
     temperature: options.temperature ?? 0,
-    maxTokens: options.maxTokens ?? 512,
+    maxTokens: options.maxTokens ?? 4096,
     signal: options.signal,
   })
   let text = ''

@@ -44,7 +44,7 @@ export function absolutePrompt(problem: string, criterion: string, candidate: st
   ].join('\n\n')
 }
 
-const SCORE_RE = /SCORE\s*[:：]\s*\(?\s*([A-T])\b/i
+const SCORE_RE = /['"]?SCORE['"]?\s*[:：]\s*\(?\s*['"]?([A-T])\b/i
 
 /** 从一段模型文本里提取 SCORE:<letter>；提取不到返回 null。 */
 export function extractScoreLetter(text: string): string | null {
@@ -79,7 +79,7 @@ export function makeSamplingJudge(
             ...route,
             system: defaults.system,
             prompt,
-            maxTokens: 16,
+            maxTokens: 4096,
             signal,
           })
         } catch (err) {

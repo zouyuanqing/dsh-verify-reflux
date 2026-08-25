@@ -181,3 +181,9 @@ check 兜底失败时报错携带所用路由，便于一眼定位。
 - check 失败时降级轨迹与终态错误落盘 failed-check-*.md（证据不再蒸发）
 - 新工具 verify_selftest：一次调用回报 评分路由 / 模型原始回复(≤300字) /
   解析结果；PASS 才静默，FAIL 时把诊断作为错误抛出
+
+### v2.4.3 推理模型预算修复（真实端点实测定位）
+hy3/mimo 等推理模型在 openai-completions 协议下 reasoning 消耗计入
+max_tokens：512 预算被思考烧光（finish=length，正文 0 字符）→ 两档判分
+全部拿不到输出。实测 8192 预算下 hy3 思考 ~1041 tokens 后正常产出。
+修复：判分补全默认预算 4096；SCORE_RE 兼容 "SCORE":"C" JSON 包裹形态。
