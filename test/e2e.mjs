@@ -49,6 +49,7 @@ const llm = {
 }
 
 const registeredTools = new Map()
+let assembleListener = null
 const systemSections = []
 const systemContexts = []
 const ctx = {
@@ -66,10 +67,14 @@ const ctx = {
     },
   },
   llm,
+  on(event, handler) {
+    if (event === 'system-prompt/assemble') assembleListener = handler
+    return () => {}
+  },
 }
 
 process.chdir(mkdtempSync(join(tmpdir(), 'verify-reflux-e2e-')))
-apply(ctx, {})
+apply(ctx, { preTurnDeepThink: 'light' })
 
 assert.ok(registeredTools.has('verify_select'), 'select registered')
 assert.ok(registeredTools.has('verify_check'), 'check registered')
@@ -95,6 +100,14 @@ const result = await tool.execute(
 
 // L1 verdict line names the true winner.
 assert.match(result.reflux, /^Best: candidate 1 \| score/)
+assert.equal(typeof assembleListener, 'function', 'waterfall listener registered')
+{
+  const assembly = { sections: [], contexts: [], tools: [], variables: {} }
+  const out = await assembleListener(assembly, {}, async () => assembly)
+  const injected = out.contexts.find((c) => c.name === 'verify-reflux:preturn')
+  assert.ok(injected, 'pre-turn deepthink injected after a verdict exists')
+  assert.match(injected.text, /Settled verification state|Rejected approaches/)
+}
 const stateText = systemContexts.find((c) => c.name === 'verify-reflux:state').text()
 assert.match(stateText, /candidate 2 wins/, 'verified-state snapshot carries the verdict')
 assert.match(stateText, /\(sample@test-route\/mock-model\)/, 'snapshot keeps tier provenance')

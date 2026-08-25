@@ -145,3 +145,16 @@ listModels() 默认模型。温度默认 0（种子化可复现），maxTokens 5
   （待勘察：dsh-client-connection 的 connection-stream 投递面）
 - C 可对话线程：面板输入框 → host verifier-thread Service → 独立 LLM 循环，
   历史落 `.verifier/threads/`；经 api-gateway Remote 暴露 host.call 端点
+
+## v2.3 预轮 DeepThink：system-prompt/assemble 瀑布（Phase B'）
+
+`preTurnDeepThink: off|light|full` 挂进官方组装瀑布——瀑布 resolve 前主模型
+不会发出请求，即「上下文注入完成才继续输出」的原生语义：
+
+- light：零延迟，注入既有裁决快照 + 墓碑尾 3 条（勿重试清单）
+- full：一次有界补全产出 ≤3 条风险 bullet；失手静默降级 light
+- 注入形态：user-role 快照 `<pre_turn_deepthink>…</pre_turn_deepthink>`
+
+与 verified-state 记忆互补：记忆是「过去裁决的持久在册」，预轮是「本轮
+生成前的风险前置」。真·模型内部思考通道（reasoning-delta 装饰）因 llm
+服务无公开中间件缝而搁置 —— 影子替换核心服务风险不可接受。

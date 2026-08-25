@@ -4,6 +4,8 @@
  * inject ['tools','systemPrompt','llm']：评分补全走 ctx.llm.stream，
  * 会话凭证由 adapter 按操作解析——零额外配置，当前对话模型即验证模型。
  */
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -41,6 +43,11 @@ export interface Config {
   verifierBaseUrl?: string
   verifierApiKeyEnv?: string
   verifierModel?: string
+  /**
+   * 预轮验证器前置思考：挂进 system-prompt/assemble 瀑布，主模型等注入完成后才生成。
+   * off=关闭；light=零延迟（仅既有裁决+墓碑）；full=一次有界补全产出风险清单，失败静默降级。
+   */
+  preTurnDeepThink?: string
 }
 
 export const Config: z<Config> = z.object({
@@ -52,6 +59,7 @@ export const Config: z<Config> = z.object({
   verifierBaseUrl: z.string(),
   verifierApiKeyEnv: z.string(),
   verifierModel: z.string(),
+  preTurnDeepThink: z.string().default('off'),
 })
 
 interface Route {
@@ -171,6 +179,67 @@ export function apply(ctx: Context, config: Config): void {
     order: 150,
     text: () => verifiedState.render(),
   })
+
+  // ── 预轮 DeepThink：挂进官方 system-prompt/assemble 瀑布 ──────────────────
+  // 瀑布必须 resolve 主模型的请求才会发出 —— 「主会话模型等到上下文注入后
+  // 才继续输出」正是这里的字面语义。full 档失手静默降级 light，绝不阻塞。
+  const preTurn = (['off', 'light', 'full'] as const).includes(config.preTurnDeepThink as never)
+    ? (config.preTurnDeepThink as 'off' | 'light' | 'full')
+    : 'off'
+  const graveyardTail = (): string => {
+    try {
+      const raw = readFileSync(join(process.cwd(), '.verifier', 'graveyard.md'), 'utf8')
+      return raw
+        .split('\n')
+        .filter((l) => l.trim().startsWith('-'))
+        .slice(-3)
+        .join('\n')
+    } catch {
+      return ''
+    }
+  }
+  ctx.on('system-prompt/assemble', async (assembly, context, next) => {
+    const out = await next()
+    if (preTurn === 'off') return out
+    if (!context?.signal && preTurn !== 'light') {
+      // 无信号来源时仍继续；仅作记录用途。
+    }
+    const settled = verifiedState.render()
+    const grave = graveyardTail()
+    let text = ''
+    if (preTurn === 'full') {
+      try {
+        const route = await resolveRoute(ctx.llm, config)
+        const reply = await completeText(ctx.llm, {
+          ...route,
+          system:
+            'You are the pre-flight verifier. Given settled verdicts and rejected approaches, ' +
+            'output AT MOST 3 terse risk bullets the next change must respect. No preamble.',
+          prompt: [settled || '(no verdicts yet)', grave ? 'Rejected:\n' + grave : '']
+            .filter(Boolean)
+            .join('\n\n'),
+          signal: context?.signal,
+        })
+        text = reply.trim()
+      } catch {
+        // full 失手 → 落到 light 的静态拼装
+      }
+    }
+    if (!text) {
+      const parts: string[] = []
+      if (settled) parts.push('Settled verification state (respect it):\n' + settled)
+      if (grave) parts.push('Rejected approaches (do not retry):\n' + grave)
+      if (parts.length) text = parts.join('\n\n')
+    }
+    if (text) {
+      out.contexts.push({
+        name: 'verify-reflux:preturn',
+        text: '<pre_turn_deepthink>\n' + text + '\n</pre_turn_deepthink>',
+      })
+    }
+    return out
+  })
+
 
   ctx.systemPrompt.section({
     name: 'tool:verify-reflux',
