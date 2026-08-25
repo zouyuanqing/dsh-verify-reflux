@@ -50,7 +50,10 @@ export async function completeText(
     ],
     system: options.system,
     temperature: options.temperature ?? 0,
-    maxTokens: options.maxTokens ?? 4096,
+    // 预算钳制：推理模型给大预算会「思考到上限」，判分延迟爆炸
+    // （实测 hy3@64000 直接撞穿工具 5min 时限）。SCORE 判分思考 ~1-4k
+    // 足够，8192 为安全天花板；目录值只影响下限参考。
+    maxTokens: Math.min(options.maxTokens ?? 4096, 8192),
     signal: options.signal,
   })
   let text = ''
