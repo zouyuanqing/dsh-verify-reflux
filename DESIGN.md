@@ -176,3 +176,8 @@ first-registered 回退可能指向未配置凭证的适配器（如 deepseek-of
 无 key），导致 SCORE 采样与 JSON 模板双档全部拿不到有效输出。现在三个
 工具的评分路由优先取 sessionRoute(exec)，config 仅作无代理场景兜底；
 check 兜底失败时报错携带所用路由，便于一眼定位。
+
+### v2.4.2 失败取证 + verify_selftest
+- check 失败时降级轨迹与终态错误落盘 failed-check-*.md（证据不再蒸发）
+- 新工具 verify_selftest：一次调用回报 评分路由 / 模型原始回复(≤300字) /
+  解析结果；PASS 才静默，FAIL 时把诊断作为错误抛出

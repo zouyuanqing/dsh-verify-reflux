@@ -28,7 +28,7 @@ import { scoreDirect, expectationOf } from './direct.js'
 import type { DirectEndpoint } from './direct.js'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { bradleyTerry, preference } from './tournament.js'
-import { makeSamplingJudge, createCapabilityStore, probeLogprobs, absolutePrompt } from './judges.js'
+import { makeSamplingJudge, createCapabilityStore, probeLogprobs, absolutePrompt, extractScoreLetter } from './judges.js'
 import type { DistributionJudge } from './judges.js'
 
 export const name = 'verify-reflux'
@@ -304,6 +304,54 @@ export function apply(ctx: Context, config: Config): void {
       'approach — rejected ones are recorded there.',
   })
 
+  // 自诊断：一次调用回报 评分路由 / 模型原始回复 / 解析结果。verify_* 失败时先跑它。
+  ctx.tools.register(
+    defineTool({
+      name: 'verify_selftest',
+      description:
+        'One-round diagnostic for the verification pipeline. Resolves the scoring route, sends a minimal ' +
+        'hidden completion, and reports the raw reply plus parse result. Run this when verify_* tools fail.',
+      parameters: {},
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { reflux: { type: 'string', required: true } },
+        },
+        render: (_args, value) => [{ type: 'text' as const, text: String(value.reflux) }],
+      },
+      timeoutMs: 60_000,
+      isConcurrencySafe: () => true,
+      async execute(_args, exec) {
+        exec.signal?.throwIfAborted()
+        const route = await resolveRoute(ctx.llm, { ...config, ...sessionRoute(exec) })
+        const lines: string[] = [`route: ${route.provider}/${route.model}`]
+        let letter: string | null = null
+        try {
+          const reply = await completeText(ctx.llm, {
+            ...route,
+            system: 'Output ONLY minified JSON.',
+            prompt: 'Reply exactly: SCORE:C',
+            signal: exec.signal,
+          })
+          lines.push(`reply(${reply.length} chars): ${reply.slice(0, 300) || '(empty)'}`)
+          letter = extractScoreLetter(reply)
+          lines.push(`parsed letter: ${letter ?? 'NONE'}`)
+        } catch (err) {
+          lines.push(`completion FAILED: ${String(err).slice(0, 240)}`)
+        }
+        const verdict = letter ? 'PASS' : 'FAIL'
+        const reflux =
+          `selftest ${verdict} — scoring route ${route.provider}/${route.model}\n` +
+          '<verified_decision tool="verify_selftest" model="' + route.provider + '/' + route.model + '" via="diagnostic">\n' +
+          lines.map((l) => '• ' + l).join('\n') +
+          '\n</verified_decision>'
+        if (!letter) throw new Error(reflux)
+        return { reflux }
+      },
+    }),
+  )
+
   if (flags.select) {
     ctx.tools.register(
       defineTool({
@@ -501,31 +549,38 @@ export function apply(ctx: Context, config: Config): void {
           const via = judge.via
           let score: number
           let spread: number
-          let rawLog: string[]
-          const scored = await absScoresVia(
-            judge,
-            { problem: args.problem, candidates: [args.candidate], names, criteria },
-            (rawLog = [`# verify_check ${new Date().toISOString()}`]),
-            exec.signal,
-          )
-          if (scored) {
-            score = mean(scored.scores)
-            spread = stdev(scored.perCriterion[0] ?? [])
-          } else {
-            try {
+          const rawLog: string[] = [
+            `# verify_check ${new Date().toISOString()}\nroute: ${route.provider}/${route.model} via=${via}`,
+          ]
+          try {
+            const scored = await absScoresVia(
+              judge,
+              { problem: args.problem, candidates: [args.candidate], names, criteria },
+              rawLog,
+              exec.signal,
+            )
+            if (scored) {
+              score = mean(scored.scores)
+              spread = stdev(scored.perCriterion[0] ?? [])
+            } else {
               const result = await comparePair(ctx.llm, route, args.problem, args.candidate, args.candidate, criteria, {
                 repeats: 3,
                 signal: exec.signal,
               })
               score = result.scores[0]!
               spread = result.spreads[0]!
-              rawLog = result.raw
-            } catch (err) {
-              throw new Error(
-                `${String(err).slice(0, 200)} — scoring route: ${route.provider}/${route.model}. ` +
-                  `If this model rejects hidden completions, configure verifierBaseUrl for direct scoring.`,
-              )
+              rawLog.push(...result.raw)
             }
+          } catch (err) {
+            // 失败也落盘：降级轨迹 + 终态错误，证据不再蒸发。
+            rawLog.push(`## FATAL\n${String(err)}`)
+            try {
+              await sink.writeTrace(`failed-check-${Date.now()}.md`, rawLog.join('\n---\n'))
+            } catch {}
+            throw new Error(
+              `${String(err).slice(0, 240)} — scoring route: ${route.provider}/${route.model}; ` +
+                `forensics: .verifier/traces/`,
+            )
           }
           const record =
             `① RISK: top failure modes found during execution test — see trace for per-criterion detail\n` +
