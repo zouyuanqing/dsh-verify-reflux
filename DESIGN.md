@@ -158,3 +158,8 @@ listModels() 默认模型。温度默认 0（种子化可复现），maxTokens 5
 与 verified-state 记忆互补：记忆是「过去裁决的持久在册」，预轮是「本轮
 生成前的风险前置」。真·模型内部思考通道（reasoning-delta 装饰）因 llm
 服务无公开中间件缝而搁置 —— 影子替换核心服务风险不可接受。
+
+### v2.3.1 会话隔离（审计修正）
+验证状态改 WeakMap<Agent, ring>——以 harness 自身的 scope 路由键（Agent
+对象）分桶：陌生会话状态恒空、瀑布不注入；仅跑过 verify_* 的会话进入
+预轮 DeepThink 名单。`preTurnEverywhere` 显式打开全域（默认 false）。

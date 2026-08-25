@@ -16,7 +16,9 @@ import type { Criteria } from './scorer.js'
 import { runTournament } from './tournament.js'
 import { distillVerdict, isValidRecord } from './distill.js'
 import { formatCheckReflux, formatSelectReflux, formatTrackLine } from './reflux.js'
-import { createVerifiedState } from './state.js'
+import { createVerifiedStateRegistry, keyOf } from './state.js'
+import type { StateKey, VerdictEntry } from './state.js'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { RefluxMeta } from './reflux.js'
 import { createTraceSink } from './trace.js'
 import { resolveRoute } from './llm.js'
@@ -48,6 +50,8 @@ export interface Config {
    * off=关闭；light=零延迟（仅既有裁决+墓碑）；full=一次有界补全产出风险清单，失败静默降级。
    */
   preTurnDeepThink?: string
+  /** 谨慎：true 时预轮注入作用于全部会话（默认仅限跑过验证的会话）。 */
+  preTurnEverywhere?: boolean
 }
 
 export const Config: z<Config> = z.object({
@@ -60,6 +64,7 @@ export const Config: z<Config> = z.object({
   verifierApiKeyEnv: z.string(),
   verifierModel: z.string(),
   preTurnDeepThink: z.string().default('off'),
+  preTurnEverywhere: z.boolean().default(false),
 })
 
 interface Route {
@@ -173,11 +178,15 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   // 验证记忆：每次 verify_* 后，模型在后续每一轮都读到这份持久快照。
-  const verifiedState = createVerifiedState()
+  const verifiedState = createVerifiedStateRegistry()
+  const execKey = (exec: { agent?: unknown }): StateKey => keyOf(exec.agent)
+  const recordVerdict = (exec: { agent?: unknown }, entry: Omit<VerdictEntry, 'time'>): void => {
+    verifiedState.record(execKey(exec), { ...entry, time: new Date().toISOString().slice(11, 19) })
+  }
   ctx.systemPrompt.context({
     name: 'verify-reflux:state',
     order: 150,
-    text: () => verifiedState.render(),
+    text: (ac) => verifiedState.renderFor(keyOf(ac?.scope)),
   })
 
   // ── 预轮 DeepThink：挂进官方 system-prompt/assemble 瀑布 ──────────────────
@@ -201,10 +210,9 @@ export function apply(ctx: Context, config: Config): void {
   ctx.on('system-prompt/assemble', async (assembly, context, next) => {
     const out = await next()
     if (preTurn === 'off') return out
-    if (!context?.signal && preTurn !== 'light') {
-      // 无信号来源时仍继续；仅作记录用途。
-    }
-    const settled = verifiedState.render()
+    const sKey = keyOf(context?.scope)
+    if (!verifiedState.hasEngaged(sKey) && !config.preTurnEverywhere) return out
+    const settled = verifiedState.renderFor(sKey)
     const grave = graveyardTail()
     let text = ''
     if (preTurn === 'full') {
@@ -374,8 +382,7 @@ export function apply(ctx: Context, config: Config): void {
           }
 
           const margin = Math.abs(tournament.scores[best]! - tournament.scores[runnerUp]!)
-          verifiedState.record({
-            time: new Date().toISOString().slice(11, 19),
+          recordVerdict(exec, {
             tool: 'verify_select',
             summary: `candidate ${best + 1} wins (runner-up ${tournament.runnerUp + 1}, margin ${margin.toFixed(3)})`,
             via,
@@ -477,8 +484,7 @@ export function apply(ctx: Context, config: Config): void {
             `② GUARDED: modes the candidate already defends against\n` +
             `③ SPREAD: repeat disagreement ±${spread.toFixed(3)}${spread > 0.15 ? ' (low verifier agreement — treat score cautiously)' : ''}`
           const tracesPath = await sink.writeTrace('check.md', rawLog.join('\n---\n'))
-          verifiedState.record({
-            time: new Date().toISOString().slice(11, 19),
+          recordVerdict(exec, {
             tool: 'verify_check',
             summary: `score ${(score * 100).toFixed(0)}% ±${(spread * 100).toFixed(0)} across ${names.length} criteria`,
             via,
@@ -556,8 +562,7 @@ export function apply(ctx: Context, config: Config): void {
           }
           const tracesPath = await sink.writeTrace('track.md', raw.join('\n'))
           const last = points.at(-1)?.value ?? 0
-          verifiedState.record({
-            time: new Date().toISOString().slice(11, 19),
+          recordVerdict(exec, {
             tool: 'verify_track',
             summary: "progress " + Math.round(last * 100) + "% over " + points.length + " checkpoints" + (stalled ? ' · STALLED' : ''),
           })

@@ -108,6 +108,17 @@ assert.equal(typeof assembleListener, 'function', 'waterfall listener registered
   assert.ok(injected, 'pre-turn deepthink injected after a verdict exists')
   assert.match(injected.text, /Settled verification state|Rejected approaches/)
 }
+{
+  // 陌生会话（scope 为未知对象）→ 不注入、状态为空
+  const stranger = { sections: [], contexts: [], tools: [], variables: {} }
+  const outStranger = await assembleListener(stranger, { scope: {} }, async () => stranger)
+  assert.equal(outStranger.contexts.some((c) => c.name === 'verify-reflux:preturn'), false, 'stranger session gets no injection')
+  assert.equal(systemContexts.find((c) => c.name === 'verify-reflux:state').text({ scope: {} }), '', 'stranger state empty')
+  // 本会话（root）→ 注入照旧
+  const mine = { sections: [], contexts: [], tools: [], variables: {} }
+  const outMine = await assembleListener(mine, {}, async () => mine)
+  assert.ok(outMine.contexts.find((c) => c.name === 'verify-reflux:preturn'), 'engaged root session injected')
+}
 const stateText = systemContexts.find((c) => c.name === 'verify-reflux:state').text()
 assert.match(stateText, /candidate 2 wins/, 'verified-state snapshot carries the verdict')
 assert.match(stateText, /\(sample@test-route\/mock-model\)/, 'snapshot keeps tier provenance')

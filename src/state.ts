@@ -1,8 +1,10 @@
 /**
- * Verified-state memory: a bounded ring of the most recent verification
- * verdicts, rendered as a dynamic system-prompt context. After any verify_*
- * run the model reads this snapshot on every later turn — verification
- * becomes part of what the model "knows", not just a one-off tool reply.
+ * Verified-state memory, scoped per agent/session.
+ *
+ * Keys are the executing Agent object (the harness's own scope routing key)
+ * or the literal 'root' for scope-less assemblies. WeakMap keyed by the live
+ * agent means finished sessions are garbage-collected with their verdicts —
+ * no cross-session leakage, no manual eviction.
  */
 
 export interface VerdictEntry {
@@ -16,28 +18,47 @@ export interface VerdictEntry {
 	readonly via?: string
 }
 
-export interface VerifiedState {
-	record(entry: VerdictEntry): void
-	/** Rendered snapshot; empty string contributes nothing to assembly. */
-	render(): string
-	readonly entries: readonly VerdictEntry[]
-}
+export type StateKey = object | 'root'
 
 const MAX_ENTRIES = 6
 
-export function createVerifiedState(max: number = MAX_ENTRIES): VerifiedState {
-	const entries: VerdictEntry[] = []
+export function keyOf(scope: unknown): StateKey {
+	if (scope && typeof scope === 'object') return scope
+	return 'root'
+}
+
+export interface VerifiedStateRegistry {
+	record(key: StateKey, entry: VerdictEntry): void
+	/** Rendered snapshot for one scope; empty string contributes nothing. */
+	renderFor(key: StateKey): string
+	/** Whether this scope has run any verification (gates pre-turn deepthink). */
+	hasEngaged(key: StateKey): boolean
+}
+
+export function createVerifiedStateRegistry(max: number = MAX_ENTRIES): VerifiedStateRegistry {
+	const byObject = new WeakMap<object, VerdictEntry[]>()
+	const root: VerdictEntry[] = []
+	const bucketFor = (key: StateKey): VerdictEntry[] =>
+		key === 'root' ? root : byObject.get(key)!
+	const ensure = (key: StateKey): VerdictEntry[] => {
+		if (key === 'root') return root
+		let b = byObject.get(key)
+		if (!b) {
+			b = []
+			byObject.set(key, b)
+		}
+		return b
+	}
 	return {
-		get entries() {
-			return entries
+		record(key, entry) {
+			const b = ensure(key)
+			b.unshift(entry)
+			if (b.length > max) b.length = max
 		},
-		record(entry) {
-			entries.unshift(entry)
-			if (entries.length > max) entries.length = max
-		},
-		render() {
-			if (!entries.length) return ''
-			const lines = entries.map(
+		renderFor(key) {
+			const b = bucketFor(key)
+			if (!b || !b.length) return ''
+			const lines = b.map(
 				(e) => `- [${e.time}] ${e.tool}: ${e.summary}${e.via ? ` (${e.via})` : ''}`,
 			)
 			return [
@@ -47,6 +68,10 @@ export function createVerifiedState(max: number = MAX_ENTRIES): VerifiedState {
 				...lines,
 				'</verified_state>',
 			].join('\n')
+		},
+		hasEngaged(key) {
+			const b = bucketFor(key)
+			return !!b && b.length > 0
 		},
 	}
 }
