@@ -28,7 +28,7 @@ import type { DistributionJudge } from './judges.js'
 
 export const name = 'verify-reflux'
 
-export const inject = ['tools', 'systemPrompt', 'llm', 'credentials'] as const
+export const inject = ['tools', 'systemPrompt', 'llm'] as const
 
 export interface Config {
   provider?: string
@@ -80,6 +80,10 @@ export function apply(ctx: Context, config: Config): void {
    * 判分器阶梯解析：T1 logprob 直连（配置+探测通过）→ T2 会话模型采样分布
    * → 返回 null 走模板档。能力探测结果带冷却期缓存，失败端点一小时内不重试。
    */
+  // credentials 为可选缝：缺席时仅禁用直连档，插件照常加载。
+  const credService: { resolve(ref: unknown): Promise<{ value: string } | undefined> } | undefined = (() => {
+    try { return (ctx as { credentials?: typeof credService }).credentials } catch { return undefined }
+  })()
   const caps = createCapabilityStore()
   const ABS_SYSTEM =
     'You are a skeptical independent reviewer. Grade the solution on a 20-letter scale: ' +
@@ -94,7 +98,8 @@ export function apply(ctx: Context, config: Config): void {
     const capKey = `logprob@${host}/${model}`
     let ok = caps.get(capKey)
     if (ok === undefined) {
-      const hit = await ctx.credentials.resolve(credentialRef(apiKeyEnv))
+      if (!credService) { caps.set(capKey, false); return null }
+      const hit = await credService.resolve(credentialRef(apiKeyEnv))
       ok = hit
         ? await probeLogprobs(
             { baseUrl: config.verifierBaseUrl!, apiKey: hit.value, model },
@@ -109,7 +114,8 @@ export function apply(ctx: Context, config: Config): void {
       tier: 'logprob',
       via: capKey,
       async dist({ problem, candidate, criterion, signal }) {
-        const hit = await ctx.credentials.resolve(ref)
+        if (!credService) throw new Error(`credentials service unavailable — T1 disabled`)
+        const hit = await credService.resolve(ref)
         if (!hit) throw new Error(`verifier credential ${apiKeyEnv} is not configured`)
         const r = await scoreDirect(
           { baseUrl: config.verifierBaseUrl!, apiKey: hit.value, model },

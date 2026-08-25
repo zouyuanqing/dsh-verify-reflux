@@ -3,7 +3,7 @@
  * mock context and a scripted LLM stream, executing verify_select fully —
  * tournament, distillation, reflux formatting, trace persistence.
  */
-import { apply } from '../lib/src/index.js'
+import { apply } from '../lib/index.js'
 import assert from 'node:assert/strict'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
